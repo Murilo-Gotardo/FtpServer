@@ -1,36 +1,53 @@
 extern crate core;
-
-use std::io::{Read};
-use std::net::{TcpListener};
+use std::io::Read;
+use std::net::{TcpListener, TcpStream};
+use std::thread;
 use crate::requisition::Requisition;
-
 mod requisition;
-mod ftp_server;
 mod commands;
+mod json_sender;
 
 fn main() -> std::io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:0");
+    let listener = TcpListener::bind("127.0.0.1:11000");
     
     for stream in listener.unwrap().incoming() {
         match stream {
-            Ok(mut stream) => {
-                resolve_requisition(stream.read(&mut [0u8; 1000])?);
-            } Err(e) => { }
+            Ok(stream) => {
+                thread::spawn(|| {
+                    resolve_requisition(stream);
+                });
+            } Err(e) => println!("deu ruim")
         }
     }
     
     Ok(())
 }
 
-fn resolve_requisition(data: usize) {
-    let binding = [data as u8];
-    let json = &*String::from_utf8_lossy(&binding);
-    let requisition: Requisition = serde_json::from_str(json).expect("deu ruim no json");
-    let command = requisition.command();
+fn resolve_requisition(mut connection: TcpStream) {
     
-    match command { 
-        "list" => commands::list(requisition).unwrap(),
-        "put" => commands::put(requisition),
+    let mut metadata_buffer = [0; 8];
+    connection.read_exact(&mut metadata_buffer[..]).expect("TODO: panic message");
+    let metadata_length = u64::from_le_bytes(metadata_buffer);
+
+    let mut buffer = vec![0; metadata_length as usize];
+    connection.read(&mut buffer).expect("TODO: panic message");
+  
+    let json = String::from_utf8_lossy(&buffer[..]);
+    println!("{}", json);
+    let cleaned_json = json.trim_end_matches('\0');
+    let requisition = serde_json::from_str::<Requisition>(&cleaned_json).expect("cwe");
+    
+    let mut file_size_buf = [0; 8];
+    connection.read_exact(&mut file_size_buf[..]).expect("TODO: panic message");
+    let file_size = u64::from_le_bytes(file_size_buf);
+    
+    let mut file_buffer = vec![0; file_size as usize];
+    connection.read_exact(&mut file_buffer).expect("TODO: panic message");
+    
+    return match requisition.command() {
+        "list" => commands::list(connection).unwrap(),
+        "put" => commands::put(requisition, connection, file_buffer),
+        "get" => commands::get(requisition, connection).unwrap(),
         _ => println!("Método não reconhecido")
     }
 }
