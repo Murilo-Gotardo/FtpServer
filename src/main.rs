@@ -37,16 +37,9 @@ fn resolve_requisition(mut connection: TcpStream) {
     let cleaned_json = json.trim_end_matches('\0');
     let requisition = serde_json::from_str::<Requisition>(&cleaned_json).expect("cwe");
     
-    let mut file_size_buf = [0; 8];
-    connection.read_exact(&mut file_size_buf[..]).expect("TODO: panic message");
-    let file_size = u64::from_le_bytes(file_size_buf);
-    
-    let mut file_buffer = vec![0; file_size as usize];
-    connection.read_exact(&mut file_buffer).expect("TODO: panic message");
-    
     return match requisition.command() {
         "list" => commands::list(connection).unwrap(),
-        "put" => commands::put(requisition, connection, file_buffer),
+        "put" => commands::put(requisition, connection),
         "get" => commands::get(requisition, connection).unwrap(),
         _ => println!("Método não reconhecido")
     }

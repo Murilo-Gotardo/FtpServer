@@ -20,10 +20,10 @@ pub fn list(mut connection: TcpStream) -> io::Result<()> {
                     let path = entry.path();
 
                     files.push(path.file_name().unwrap().to_str().unwrap().parse().unwrap());
-
-                    let json = JsonSender::make_response_json_to_list("list", "fail", &files);
-                    JsonSender::send_json_to_client(json, &mut connection);
                 }
+
+                let json = JsonSender::make_response_json_to_list("list", "success", &files);
+                JsonSender::send_json_to_client(json, &mut connection);
             } else {
                 let json = JsonSender::make_response_json_with_reason("list", "fail", "No files in the system");
                 JsonSender::send_json_to_client(json, &mut connection);
@@ -35,9 +35,14 @@ pub fn list(mut connection: TcpStream) -> io::Result<()> {
     Ok(())
 }
 
-pub fn put(requisition: Requisition, mut connection: TcpStream, file_data: Vec<u8>) {
-    let file_quality = verify_file_integrity(&file_data, requisition.hash().clone().unwrap());
+pub fn put(requisition: Requisition, mut connection: TcpStream) {
+    let mut file_size_buf = [0; 8];
+    connection.read_exact(&mut file_size_buf[..]).expect("TODO: panic message");
+    let file_size = u64::from_le_bytes(file_size_buf);
+    let mut file_buffer = vec![0; file_size as usize];
+    connection.read_exact(&mut file_buffer).expect("TODO: panic message");
     
+    let file_quality = verify_file_integrity(&file_buffer, requisition.hash().clone().unwrap());
     if !file_quality {
         let json = JsonSender::make_response_json(requisition.file_name().as_ref().unwrap(), "put", "fail");
         JsonSender::send_json_to_client(json, &mut connection);
@@ -45,18 +50,20 @@ pub fn put(requisition: Requisition, mut connection: TcpStream, file_data: Vec<u
     }
 
     let new_file_path = format!("{}{}{}", FILES.to_owned(), "/", requisition.file_name().clone().unwrap());
-
     let output_path = Path::new(&new_file_path);
-    fs::write(output_path, file_data).expect("falha");
+    fs::write(output_path, file_buffer).expect("falha");
+
+    let json = JsonSender::make_response_json(requisition.file_name().as_ref().unwrap(), "put", "success");
+    JsonSender::send_json_to_client(json, &mut connection);
 }
 
 pub fn get(requisition: Requisition, mut connection: TcpStream) -> io::Result<()> {
     let file_path = FILES.to_owned() + "/" + &*requisition.file_name().as_ref().unwrap();
     
-    match fs::read(file_path.clone()) { 
+    match fs::read(file_path.clone()) {
         Ok(bytes) => {
             let local_hash = sha256::digest(&bytes);
-            let json = JsonSender::make_response_json_to_get(requisition.file_name().as_ref().unwrap(), "get", "success", local_hash);
+            let json = JsonSender::make_response_json_to_get(requisition.file_name().as_ref().unwrap(), "get", local_hash);
             JsonSender::send_json_to_client(json, &mut connection);
             send_file_to_client(file_path, connection);
         } Err(..) => {

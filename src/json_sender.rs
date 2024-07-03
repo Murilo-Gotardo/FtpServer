@@ -44,11 +44,10 @@ impl JsonSender {
         return json_string
     }
 
-    pub fn make_response_json_to_get(file_name: &String, operation: &str, status: &str, local_hash: String) -> String {
+    pub fn make_response_json_to_get(file_name: &String, operation: &str, local_hash: String) -> String {
         let data = json!({
          "file_name": file_name,
          "operation": operation,
-         "status": status,
          "hash": local_hash
         });
 
