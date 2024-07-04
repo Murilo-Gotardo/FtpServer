@@ -9,3 +9,4 @@ serde = { version = "1.0.203", features = ["derive"] }
 base64 = "0.22.1"
 serde_bytes = "0.11"
 sha256 = "1.0.3"
+local-ip-address = "0.6.1"
