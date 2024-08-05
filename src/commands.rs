@@ -4,38 +4,38 @@ use std::io;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
+use sha256::Sha256Digest;
 use crate::json_sender::JsonSender;
 use crate::requisition::Requisition;
 
 const FILES: &str = "src/files";
 
-pub fn list(mut connection: TcpStream) -> io::Result<()> {
+pub fn list(connection: &mut TcpStream) -> io::Result<()> {
     let mut files: Vec<String> = Vec::new();
     
     match fs::read_dir(FILES) {
-        Ok(mut entries) => {
-            if !entries.next().is_none() {
-                for entry in entries {
-                    let entry = entry?;
-                    let path = entry.path();
+        Ok(entries) => {
 
-                    files.push(path.file_name().unwrap().to_str().unwrap().parse().unwrap());
-                }
+            for entry in entries {
+                let display = entry.unwrap().path();
+                let name = display.file_name();
 
-                let json = JsonSender::make_response_json_to_list("list", "success", &files);
-                JsonSender::send_json_to_client(json, &mut connection);
-            } else {
-                let json = JsonSender::make_response_json_with_reason("list", "fail", "No files in the system");
-                JsonSender::send_json_to_client(json, &mut connection);
+                files.push(name.unwrap().to_str().unwrap().parse().unwrap());
             }
+
+            let json = JsonSender::make_response_json_to_list("list", "success", &files);
+            JsonSender::send_json_to_client(json, connection);
             
-        } Err(..) => {}
+        } Err(..) => {
+            let json = JsonSender::make_response_json_with_reason("list", "fail", "No files in the system");
+            JsonSender::send_json_to_client(json, connection);
+        }
     }
     
     Ok(())
 }
 
-pub fn put(requisition: Requisition, mut connection: TcpStream) {
+pub fn put(requisition: Requisition, connection: &mut TcpStream) {
     let mut file_size_buf = [0; 8];
     connection.read_exact(&mut file_size_buf[..]).expect("TODO: panic message");
     let file_size = u64::from_le_bytes(file_size_buf);
@@ -45,7 +45,7 @@ pub fn put(requisition: Requisition, mut connection: TcpStream) {
     let file_quality = verify_file_integrity(&file_buffer, requisition.hash().clone().unwrap());
     if !file_quality {
         let json = JsonSender::make_response_json(requisition.file_name().as_ref().unwrap(), "put", "fail");
-        JsonSender::send_json_to_client(json, &mut connection);
+        JsonSender::send_json_to_client(json, connection);
         return;
     }
 
@@ -54,21 +54,23 @@ pub fn put(requisition: Requisition, mut connection: TcpStream) {
     fs::write(output_path, file_buffer).expect("falha");
 
     let json = JsonSender::make_response_json(requisition.file_name().as_ref().unwrap(), "put", "success");
-    JsonSender::send_json_to_client(json, &mut connection);
+    JsonSender::send_json_to_client(json, connection);
 }
 
-pub fn get(requisition: Requisition, mut connection: TcpStream) -> io::Result<()> {
+pub fn get(requisition: Requisition, connection: &mut TcpStream) -> io::Result<()> {
     let file_path = FILES.to_owned() + "/" + &*requisition.file_name().as_ref().unwrap();
     
     match fs::read(file_path.clone()) {
         Ok(bytes) => {
             let local_hash = sha256::digest(&bytes);
             let json = JsonSender::make_response_json_to_get(requisition.file_name().as_ref().unwrap(), "get", local_hash);
-            JsonSender::send_json_to_client(json, &mut connection);
+            JsonSender::send_json_to_client(json, connection);
             send_file_to_client(file_path, connection);
-        } Err(..) => {
+        } Err(e) => {
             let json = JsonSender::make_response_json(requisition.file_name().as_ref().unwrap(), "get", "fail");
-            JsonSender::send_json_to_client(json, &mut connection);
+            JsonSender::send_json_to_client(json, connection);
+
+            println!("{}", e)
         }
     }
 
@@ -85,7 +87,7 @@ fn verify_file_integrity(file_data: &Vec<u8>, hash_to_verify: String) -> bool {
     }
 }
 
-fn send_file_to_client(file_path: String, mut connection: TcpStream) {
+fn send_file_to_client(file_path: String, connection: &mut TcpStream) {
     let file = File::open(file_path);
 
     let file_size = file.as_ref().unwrap().metadata().unwrap().len();

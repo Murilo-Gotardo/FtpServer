@@ -16,9 +16,9 @@ fn main() -> std::io::Result<()> {
 
             for stream in listener.unwrap().incoming() {
                 match stream {
-                    Ok(stream) => {
-                        thread::spawn(|| {
-                            resolve_requisition(stream);
+                    Ok(mut stream) => {
+                        thread::spawn(move || {
+                            resolve_requisition(&mut stream);
                         });
                     } Err(e) => println!("deu ruim")
                 }
@@ -30,23 +30,24 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-fn resolve_requisition(mut connection: TcpStream) {
-    
-    let mut metadata_buffer = [0; 8];
-    connection.read_exact(&mut metadata_buffer[..]).expect("TODO: panic message");
-    let metadata_length = u64::from_le_bytes(metadata_buffer);
+fn resolve_requisition(connection: &mut TcpStream) {
+    loop {
+        let mut metadata_buffer = [0; 8];
+        connection.read_exact(&mut metadata_buffer[..]).expect("TODO: panic message");
+        let metadata_length = u64::from_le_bytes(metadata_buffer);
 
-    let mut buffer = vec![0; metadata_length as usize];
-    connection.read(&mut buffer).expect("TODO: panic message");
-  
-    let json = String::from_utf8_lossy(&buffer[..]);
-    let cleaned_json = json.trim_end_matches('\0');
-    let requisition = serde_json::from_str::<Requisition>(&cleaned_json).expect("cwe");
-    
-    return match requisition.command() {
-        "list" => commands::list(connection).unwrap(),
-        "put" => commands::put(requisition, connection),
-        "get" => commands::get(requisition, connection).unwrap(),
-        _ => println!("Método não reconhecido")
+        let mut buffer = vec![0; metadata_length as usize];
+        connection.read(&mut buffer).expect("TODO: panic message");
+
+        let json = String::from_utf8_lossy(&buffer[..]);
+        let cleaned_json = json.trim_end_matches('\0');
+        let requisition = serde_json::from_str::<Requisition>(&cleaned_json).expect("cwe");
+
+        match requisition.command() {
+            "list" => commands::list(connection).unwrap(),
+            "put" => commands::put(requisition, connection),
+            "get" => commands::get(requisition, connection).unwrap(),
+            _ => println!("Método não reconhecido")
+        }
     }
 }
