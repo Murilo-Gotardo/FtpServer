@@ -49,12 +49,16 @@ pub fn put(requisition: Requisition, connection: &mut TcpStream) {
         return;
     }
 
-    let new_file_path = format!("{}{}{}", FILES.to_owned(), "/", requisition.file_name().clone().unwrap());
-    let output_path = Path::new(&new_file_path);
-    fs::write(output_path, file_buffer).expect("falha");
+    match fs::create_dir_all(FILES.to_owned()) {
+        Ok(_) => {
+            let new_file_path = format!("{}{}{}", FILES.to_owned(), "/", requisition.file_name().clone().unwrap());
+            let output_path = Path::new(&new_file_path);
+            fs::write(output_path, file_buffer).expect("falha");
 
-    let json = JsonSender::make_response_json(requisition.file_name().as_ref().unwrap(), "put", "success");
-    JsonSender::send_json_to_client(json, connection);
+            let json = JsonSender::make_response_json(requisition.file_name().as_ref().unwrap(), "put", "success");
+            JsonSender::send_json_to_client(json, connection);
+        } Err(_) => println!("nao foi possivel criar o caminho")
+    }
 }
 
 pub fn get(requisition: Requisition, connection: &mut TcpStream) -> io::Result<()> {
